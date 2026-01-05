@@ -1,119 +1,59 @@
-<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>오늘의 할 일</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; margin: 0; }
-    .wrap { max-width: 720px; margin: 40px auto; padding: 0 16px; }
-    h1 { font-size: 24px; margin: 0 0 16px; }
-    .row { display: flex; gap: 8px; }
-    input[type="text"] { flex: 1; padding: 12px 12px; font-size: 16px; border: 1px solid #aaa4; border-radius: 10px; }
-    button { padding: 12px 14px; font-size: 16px; border: 1px solid #aaa4; border-radius: 10px; cursor: pointer; }
-    ul { list-style: none; padding: 0; margin: 16px 0 0; }
-    li { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid #aaa4; border-radius: 12px; margin-bottom: 10px; }
-    .meta { display: flex; gap: 8px; align-items: center; margin-top: 12px; opacity: 0.8; font-size: 13px; }
-    .pill { border: 1px solid #aaa4; border-radius: 999px; padding: 4px 10px; }
-    .danger { border-color: #d33a; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>오늘의 할 일</h1>
+<div>Teachable Machine Image Model</div>
+<button type="button" onclick="init()">Start</button>
+<div id="webcam-container"></div>
+<div id="label-container"></div>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+<script type="text/javascript">
+    // More API functions here:
+    // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
 
-    <div class="row">
-      <input id="todoInput" type="text" placeholder="할 일을 입력하세요 (예: 논문 2쪽 읽기)" autocomplete="off" />
-      <button id="addBtn" type="button">추가</button>
-    </div>
+    // the link to your model provided by Teachable Machine export panel
+    const URL = "./my_model/";
 
-    <div class="meta">
-      <span class="pill" id="countPill">0개</span>
-      <button id="clearBtn" class="danger" type="button" title="오늘 목록 전체 삭제">전체 삭제</button>
-    </div>
+    let model, webcam, labelContainer, maxPredictions;
 
-    <ul id="list"></ul>
-  </div>
+    // Load the image model and setup the webcam
+    async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
 
-  <script>
-    const STORAGE_KEY = "today_todos_v1";
+        // load the model and metadata
+        // Refer to tmImage.loadFromFiles() in the API to support files from a file picker
+        // or files from your local hard drive
+        // Note: the pose library adds "tmImage" object to your window (window.tmImage)
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
 
-    const $input = document.getElementById("todoInput");
-    const $addBtn = document.getElementById("addBtn");
-    const $clearBtn = document.getElementById("clearBtn");
-    const $list = document.getElementById("list");
-    const $countPill = document.getElementById("countPill");
+        // Convenience function to setup a webcam
+        const flip = true; // whether to flip the webcam
+        webcam = new tmImage.Webcam(200, 200, flip); // width, height, flip
+        await webcam.setup(); // request access to the webcam
+        await webcam.play();
+        window.requestAnimationFrame(loop);
 
-    /** @type {{id:string, text:string, createdAt:number}[]} */
-    let todos = load();
-
-    function uid() {
-      return (crypto?.randomUUID?.() ?? String(Date.now()) + "_" + Math.random().toString(16).slice(2));
+        // append elements to the DOM
+        document.getElementById("webcam-container").appendChild(webcam.canvas);
+        labelContainer = document.getElementById("label-container");
+        for (let i = 0; i < maxPredictions; i++) { // and class labels
+            labelContainer.appendChild(document.createElement("div"));
+        }
     }
 
-    function load() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
+    async function loop() {
+        webcam.update(); // update the webcam frame
+        await predict();
+        window.requestAnimationFrame(loop);
     }
 
-    function save() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+    // run the webcam image through the image model
+    async function predict() {
+        // predict can take in an image, video or canvas html element
+        const prediction = await model.predict(webcam.canvas);
+        for (let i = 0; i < maxPredictions; i++) {
+            const classPrediction =
+                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+            labelContainer.childNodes[i].innerHTML = classPrediction;
+        }
     }
-
-    function render() {
-      $list.innerHTML = "";
-      for (const t of todos) {
-        const li = document.createElement("li");
-
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.addEventListener("change", () => {
-          // 체크하면 즉시 삭제
-          todos = todos.filter(x => x.id !== t.id);
-          save();
-          render();
-        });
-
-        const span = document.createElement("span");
-        span.textContent = t.text;
-
-        li.appendChild(cb);
-        li.appendChild(span);
-        $list.appendChild(li);
-      }
-      $countPill.textContent = `${todos.length}개`;
-    }
-
-    function addTodo() {
-      const text = $input.value.trim();
-      if (!text) return;
-
-      todos.unshift({ id: uid(), text, createdAt: Date.now() });
-      $input.value = "";
-      save();
-      render();
-      $input.focus();
-    }
-
-    $addBtn.addEventListener("click", addTodo);
-    $input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") addTodo();
-    });
-
-    $clearBtn.addEventListener("click", () => {
-      todos = [];
-      save();
-      render();
-      $input.focus();
-    });
-
-    render();
-    $input.focus();
-  </script>
-</body>
-</html>
+</script>
